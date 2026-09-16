@@ -1,0 +1,1 @@
+# No serializers needed for the ai_assistant app yet
