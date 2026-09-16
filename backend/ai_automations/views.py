@@ -13,6 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 from .models import Workflow
 from .serializers import WorkflowSerializer
 from .services import publish_event
+from inventory.models import Product
 
 logger = logging.getLogger(__name__)
 
@@ -66,40 +67,35 @@ class AutomationEventView(APIView):
         return Response({'id': event.id, 'status': event.status, 'created': created}, status=201 if created else 200)
 
 class DialogflowWebhook(APIView):
+    permission_classes = [IsAuthenticated]
+
     def post(self, request, *args, **kwargs):
         try:
             data = request.data
-            text = data.get('text', '').lower()
+            text = data.get('text', '').strip().lower()
+            business = request.user.business
+
+            if not business:
+                raise PermissionDenied('Your account is not associated with a business.')
 
             if text == 'products':
-                # Fetch product list from the commerce API
-                # This assumes the backend is running on the default port 8000
-                response = requests.get('http://localhost:8000/api/commerce/products/')
-                if response.status_code == 200:
-                    products = response.json()
-                    product_list = "\n".join([f"{p['id']}: {p['name']} - KES {p['price']}" for p in products])
-                    return Response({'fulfillmentText': f"Here are our products:\n{product_list}"})
-                else:
-                    return Response({'fulfillmentText': "Sorry, I couldn't fetch the products right now."})
+                products = Product.objects.filter(business=business).order_by('name')[:20]
+                if not products:
+                    return Response({'fulfillmentText': 'Your catalogue is empty. Add products to get started.'})
+                product_list = '\n'.join(
+                    f'{product.name} - {product.price} {business.currency}'
+                    for product in products
+                )
+                return Response({'fulfillmentText': f'Here are your products:\n{product_list}'})
 
-            elif text.startswith('buy '):
-                product_id = text.split(' ')[1]
-                phone_number = data.get('session') # Assuming the session ID is the user's phone number
+            if text.startswith('buy '):
+                return Response({'fulfillmentText': 'Order creation is available through the cart checkout flow. Tell me the product name and quantity to continue.'})
 
-                # Initiate payment
-                response = requests.post('http://localhost:8000/api/commerce/initiate-payment/', data={
-                    'product_id': product_id,
-                    'phone_number': phone_number
-                })
-
-                if response.status_code == 200:
-                    return Response({'fulfillmentText': "Thank you! You will receive a prompt on your phone to complete the payment."})
-                else:
-                    return Response({'fulfillmentText': "Sorry, I couldn't process your order right now."})
-
-            # If it's not a commerce command, proceed with Dialogflow
             session_id = data.get('session', 'default_session_id')
             project_id = os.environ.get('DIALOGFLOW_PROJECT_ID')
+            ai_provider = os.environ.get('AI_PROVIDER', 'local').lower()
+            if ai_provider != 'dialogflow' or not project_id:
+                return Response({'fulfillmentText': 'I am ready to help with products, orders, and payments. Try typing "products".'})
             session_client = dialogflow.SessionsClient()
             session = session_client.session_path(project_id, session_id)
             text_input = dialogflow.types.TextInput(text=data.get('text'), language_code='en-US')
@@ -113,6 +109,6 @@ class DialogflowWebhook(APIView):
         except Exception as e:
             logger.error(f"Error in Dialogflow webhook: {e}")
             return Response(
-                {'error': str(e)},
+                {'detail': 'The AI assistant is temporarily unavailable.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

@@ -3,6 +3,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import Business, User
 from .models import AutomationEvent, AutomationLog, Workflow, WorkflowExecution
+from inventory.models import Product
 
 
 class AutomationTests(APITestCase):
@@ -73,5 +74,23 @@ class AutomationTests(APITestCase):
 
 		self.assertEqual(response.status_code, 400)
 		self.assertFalse(AutomationEvent.objects.exists())
+
+	def test_chatbot_works_without_dialogflow_credentials(self):
+		response = self.client.post(reverse('dialogflow-webhook'), {
+			'text': 'hello', 'session': 'test-session',
+		}, format='json')
+
+		self.assertEqual(response.status_code, 200)
+		self.assertIn('products', response.data['fulfillmentText'])
+
+	def test_chatbot_product_lookup_is_tenant_scoped(self):
+		Product.objects.create(business=self.business, name='Local Flour', price='100.00')
+		Product.objects.create(business=Business.objects.create(name='Other', email='other-products@example.com'), name='Hidden Product', price='200.00')
+
+		response = self.client.post(reverse('dialogflow-webhook'), {'text': 'products'}, format='json')
+
+		self.assertEqual(response.status_code, 200)
+		self.assertIn('Local Flour', response.data['fulfillmentText'])
+		self.assertNotIn('Hidden Product', response.data['fulfillmentText'])
 
 # Create your tests here.
