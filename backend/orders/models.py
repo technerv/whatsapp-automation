@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 import uuid
 
 from accounts.models import Business, User
@@ -49,6 +50,52 @@ class Order(models.Model):
         if new_status not in self.ALLOWED_TRANSITIONS.get(self.status, set()):
             raise ValueError(f'Cannot transition order from {self.status} to {new_status}')
         self.status = new_status
+
+
+class Cart(models.Model):
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('converted', 'Converted'),
+        ('abandoned', 'Abandoned'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name='carts')
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='carts')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['business', 'customer'],
+                condition=Q(status='active'),
+                name='unique_active_cart_per_customer',
+            ),
+        ]
+
+    @property
+    def total_amount(self):
+        return sum((item.line_total for item in self.items.all()), 0)
+
+
+class CartItem(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(Product, on_delete=models.PROTECT)
+    quantity = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['cart', 'product'], name='unique_product_per_cart'),
+        ]
+
+    @property
+    def line_total(self):
+        return self.product.price * self.quantity
 
 class OrderItem(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

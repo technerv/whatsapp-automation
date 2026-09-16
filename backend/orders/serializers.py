@@ -2,7 +2,42 @@ from rest_framework import serializers
 from django.db import transaction
 from crm.models import Customer
 from inventory.models import Product
-from .models import Order, OrderItem, Invoice, Receipt
+from .models import Cart, CartItem, Order, OrderItem, Invoice, Receipt
+
+
+class CartItemSerializer(serializers.ModelSerializer):
+    line_total = serializers.ReadOnlyField()
+
+    class Meta:
+        model = CartItem
+        fields = ('id', 'cart', 'product', 'quantity', 'line_total', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'cart', 'line_total', 'created_at', 'updated_at')
+
+    def validate_product(self, product):
+        business = self.context['request'].user.business
+        if product.business_id != business.id:
+            raise serializers.ValidationError('Product must belong to your business.')
+        return product
+
+    def validate_quantity(self, quantity):
+        if quantity < 1:
+            raise serializers.ValidationError('Quantity must be at least 1.')
+        return quantity
+
+
+class CartSerializer(serializers.ModelSerializer):
+    items = CartItemSerializer(many=True, read_only=True)
+    total_amount = serializers.ReadOnlyField()
+
+    class Meta:
+        model = Cart
+        fields = ('id', 'business', 'customer', 'status', 'items', 'total_amount', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'business', 'status', 'items', 'total_amount', 'created_at', 'updated_at')
+
+    def validate_customer(self, customer):
+        if customer.business_id != self.context['request'].user.business_id:
+            raise serializers.ValidationError('Customer must belong to your business.')
+        return customer
 
 class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:
