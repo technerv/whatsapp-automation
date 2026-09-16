@@ -1,2 +1,8 @@
 google-cloud-dialogflow
 drf-nested-routers
+django-cors-headers
+dj-database-url
+Pillow
+requests
+djangorestframework
+djangorestframework-simplejwt
