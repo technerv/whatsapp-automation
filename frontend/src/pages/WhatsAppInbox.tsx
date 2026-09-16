@@ -13,6 +13,11 @@ import {
   Box,
   Typography,
   CircularProgress,
+  TextField,
+  MenuItem,
+  Select,
+  InputLabel,
+  FormControl,
 } from '@mui/material';
 
 const WhatsAppInbox: React.FC = () => {
@@ -20,12 +25,16 @@ const WhatsAppInbox: React.FC = () => {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(0);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   useEffect(() => {
     const fetchConversations = async () => {
       try {
-        const response = await apiClient.get('/v1/conversations/');
-        setConversations(response.data.results);
+        const response = await apiClient.get('/v1/conversations/', {
+          params: { search: search || undefined, status: statusFilter || undefined },
+        });
+        setConversations(response.data.results ?? response.data);
       } catch (err: unknown) {
         let errorMessage = 'Failed to fetch conversations';
         if (typeof err === 'object' && err !== null && 'response' in err) {
@@ -41,7 +50,7 @@ const WhatsAppInbox: React.FC = () => {
     };
 
     fetchConversations();
-  }, []);
+  }, [search, statusFilter]);
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
@@ -61,11 +70,25 @@ const WhatsAppInbox: React.FC = () => {
           </Tabs>
         </Box>
         {activeTab === 0 && (
-          <ConversationList
-            conversations={conversations}
-            onSelectConversation={setSelectedConversation}
-            selectedConversation={selectedConversation}
-          />
+          <>
+            <Box sx={{ p: 2, display: 'flex', gap: 1 }}>
+              <TextField size="small" fullWidth label="Search" value={search} onChange={(event) => setSearch(event.target.value)} />
+              <FormControl size="small" sx={{ minWidth: 120 }}>
+                <InputLabel id="conversation-status-label">Status</InputLabel>
+                <Select labelId="conversation-status-label" value={statusFilter} label="Status" onChange={(event) => setStatusFilter(event.target.value)}>
+                  <MenuItem value="">All</MenuItem>
+                  <MenuItem value="open">Open</MenuItem>
+                  <MenuItem value="pending">Pending</MenuItem>
+                  <MenuItem value="closed">Closed</MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
+            <ConversationList
+              conversations={conversations}
+              onSelectConversation={setSelectedConversation}
+              selectedConversation={selectedConversation}
+            />
+          </>
         )}
       </Grid>
       <Grid size={{ xs: 12, md: 8 }}>

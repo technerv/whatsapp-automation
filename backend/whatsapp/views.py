@@ -3,7 +3,8 @@ from django.db import transaction
 from django.http import JsonResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from .models import Conversation, WhatsAppAccount, WhatsAppMessage, WebhookEvent
@@ -15,7 +16,43 @@ class ConversationViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Conversation.objects.filter(business=self.request.user.business).select_related('customer').order_by('-last_message_at')
+        queryset = Conversation.objects.filter(business=self.request.user.business).select_related('customer', 'assigned_to')
+        search = self.request.query_params.get('search')
+        status_filter = self.request.query_params.get('status')
+        if search:
+            queryset = queryset.filter(customer__name__icontains=search) | queryset.filter(customer__phone_number__icontains=search)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        return queryset.order_by('-last_message_at').distinct()
+
+    @action(detail=True, methods=['post'])
+    def assign(self, request, pk=None):
+        conversation = self.get_object()
+        user_id = request.data.get('user_id')
+        if user_id:
+            from accounts.models import Membership
+            if not Membership.objects.filter(business=request.user.business, user_id=user_id, status=Membership.Status.ACTIVE).exists():
+                raise ValidationError({'user_id': 'User is not an active member of this business.'})
+        conversation.assigned_to_id = user_id or None
+        conversation.save(update_fields=['assigned_to'])
+        return Response(self.get_serializer(conversation).data)
+
+    @action(detail=True, methods=['post'])
+    def status(self, request, pk=None):
+        conversation = self.get_object()
+        new_status = request.data.get('status')
+        if new_status not in dict(Conversation.STATUS_CHOICES):
+            raise ValidationError({'status': 'Invalid conversation status.'})
+        conversation.status = new_status
+        conversation.save(update_fields=['status'])
+        return Response(self.get_serializer(conversation).data)
+
+    @action(detail=True, methods=['post'], url_path='mark-read')
+    def mark_read(self, request, pk=None):
+        conversation = self.get_object()
+        conversation.unread_count = 0
+        conversation.save(update_fields=['unread_count'])
+        return Response(self.get_serializer(conversation).data)
 
 class WhatsAppMessageViewSet(viewsets.ModelViewSet):
     serializer_class = WhatsAppMessageSerializer
@@ -93,9 +130,11 @@ def whatsapp_webhook(request):
                             whatsapp_message_id=message_id,
                             direction='inbound',
                             content=text,
+                            status='delivered',
                             timestamp=timezone.now(),
                         )
-                        conversation.save(update_fields=['last_message_at'])
+                        conversation.unread_count += 1
+                        conversation.save(update_fields=['last_message_at', 'unread_count'])
             event.status = 'processed'
             event.processed_at = timezone.now()
             event.save(update_fields=['status', 'processed_at'])

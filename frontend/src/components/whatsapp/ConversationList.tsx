@@ -42,6 +42,13 @@ const ConversationList: React.FC<ConversationListProps> = ({
               }
             />
             <Box sx={{ textAlign: 'right' }}>
+              {conversation.unread_count > 0 && (
+                <Box>
+                  <Typography variant="caption" color="primary">
+                  {conversation.unread_count} unread
+                  </Typography>
+                </Box>
+              )}
               <Typography variant="caption" color="text.secondary">
                 {new Date(conversation.last_message_at).toLocaleTimeString()}
               </Typography>

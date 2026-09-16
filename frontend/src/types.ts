@@ -17,6 +17,9 @@ export interface Conversation {
   customer: Customer;
   last_message_at: string;
   last_message: WhatsAppMessage | null;
+  assigned_to: string | null;
+  status: 'open' | 'pending' | 'closed';
+  unread_count: number;
 }
 
 export interface Order {
